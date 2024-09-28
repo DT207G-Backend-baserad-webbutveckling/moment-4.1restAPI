@@ -1,9 +1,11 @@
 const express = require('express');
 const mysql = require('mysql');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const app = express();
-const bcrypt = require('bcrypt');
+
 
 app.use(bodyParser.json());
 app.use(cors());
@@ -107,3 +109,7 @@ app.post('/login', (req, res) => {
     });
 });
 
+const PORT = process.env.PORT || 3005;
+app.listen(PORT, () => {
+    console.log(`Server körs på port ${PORT}`);
+});
