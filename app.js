@@ -16,12 +16,14 @@ const dbUser = process.env.DB_USER;
 const dbPassword = process.env.DB_PASSWORD;
 const dbHost = process.env.DB_HOST;
 const dbName = process.env.DB_NAME;
-
+const dbPort = process.env.DB_PORT;
 const db = mysql.createConnection({
     host: dbHost,
     user: dbUser,
     password: dbPassword,
-    database: dbName
+    database: dbName,
+    port: dbPort
+
 });
 
 
@@ -69,4 +71,39 @@ app.get('/protected.html', (req, res) => {
     });
 });
 
+// Registrera användare
+app.post('/register', (req, res) => {
+    const { username, password, mail } = req.body;
+    const account_created = new Date();
+
+    bcrypt.hash(password, 10, (err, hash) => {
+        if (err) return res.status(500).send('Ett fel uppstod vid hashning av lösenordet');
+
+        const query = 'INSERT INTO users (username, password, mail, account_created) VALUES (?, ?, ?, ?)';
+        db.query(query, [username, hash, mail, account_created], (err, result) => {
+            if (err) return res.status(500).send('Ett fel uppstod vid registrering av användare');
+            res.status(201).send({ message: 'Användare skapad' });
+        });
+    });
+});
+
+// Logga in användare
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+
+    const query = 'SELECT * FROM users WHERE username = ?';
+    db.query(query, [username], (err, results) => {
+        if (err) return res.status(500).send('Ett fel uppstod vid inloggning');
+        if (results.length === 0) return res.status(404).send('Användare hittades inte');
+
+        const user = results[0];
+        bcrypt.compare(password, user.password, (err, isMatch) => {
+            if (err) return res.status(500).send('Ett fel uppstod vid jämförelse av lösenord');
+            if (!isMatch) return res.status(401).send('Felaktigt lösenord');
+
+            const token = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: 86400 }); // 24 timmar
+            res.status(200).send({ auth: true, token });
+        });
+    });
+});
 
