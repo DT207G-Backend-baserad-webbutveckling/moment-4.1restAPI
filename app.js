@@ -1,3 +1,5 @@
+// BACKEND
+
 const express = require('express');
 const mysql = require('mysql');
 const bcrypt = require('bcrypt');
@@ -78,9 +80,14 @@ app.post('/register', (req, res) => {
     const { username, password, mail } = req.body;
     const account_created = new Date();
 
-    bcrypt.hash(password, 10, (err, hash) => {
-        if (err) return res.status(500).send('Ett fel uppstod vid hashning av lösenordet');
+    console.log(`Försöker registrera användare: ${username}`);
 
+    // Kryptera lösenordet
+    bcrypt.hash(password, 10, (err, hash) => {
+        if (err) {
+            console.error('Fel vid hashning av lösenord:', err.message);
+         return res.status(500).send('Ett fel uppstod vid hashning av lösenordet');
+        }
         const query = 'INSERT INTO users (username, password, mail, account_created) VALUES (?, ?, ?, ?)';
         db.query(query, [username, hash, mail, account_created], (err, result) => {
             if (err) return res.status(500).send('Ett fel uppstod vid registrering av användare');
