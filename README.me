@@ -1,0 +1,62 @@
+## 🧩 Översikt
+
+Detta projekt är en Node.js/Express‑applikation som ansluter till en MySQL‑databas. Servern renderar dynamiskt innehåll med EJS och använder miljövariabler för säker hantering av känslig information.
+
+## 🚀 Funktioner
+
+* Express-server
+* Anslutning till MySQL via `mysql`
+* EJS som template engine
+* `dotenv` för säker hantering av databasuppgifter
+
+## 📦 Installation
+
+1. Klona eller kopiera projektmappen
+2. Kör installation av beroenden:
+
+   ```bash
+   npm install
+   ```
+
+## ⚙️ Miljövariabler
+
+Projektet använder en `.env`-fil. Exempel:
+
+```env
+DB_USER=användarnamn
+DB_PASSWORD=lösenord
+DB_HOST=localhost
+DB_NAME=cv
+DB_PORT=3308
+JWT_SECRET=hemligkod
+```
+
+## ▶️ Starta servern
+
+```bash
+node app.js
+```
+
+Eller, om `nodemon` är installerad:
+
+```bash
+nodemon app.js
+```
+
+## 🌐 Öppna sidan
+
+Navigera till:
+
+```
+http://localhost:3006
+```
+
+## 📁 Projektstruktur (förenklad)
+
+```
+project/
+├── app.js
+├── package.json
+├── .env
+
+```
