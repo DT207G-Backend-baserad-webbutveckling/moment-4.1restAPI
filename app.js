@@ -1,4 +1,5 @@
-// BACKEND
+// BACKEND - cleaned & robust JSON responses + trimmed inputs + better token handling
+require('dotenv').config();
 
 const express = require('express');
 const mysql = require('mysql');
@@ -6,117 +7,161 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const path = require('path');
+
 const app = express();
 
-
+// Middlewares
+app.use(cors({
+  origin: 'http://localhost:1234', // Tillåt requests från Parcel dev server
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(bodyParser.json());
-app.use(cors());
 
-// MySQL connection
-require('dotenv').config();
-
+// ---- ENV + DB ----
 const jwtSecret = process.env.JWT_SECRET;
 const dbUser = process.env.DB_USER;
 const dbPassword = process.env.DB_PASSWORD;
 const dbHost = process.env.DB_HOST;
 const dbName = process.env.DB_NAME;
 const dbPort = process.env.DB_PORT;
-const db = mysql.createConnection({
-    host: dbHost,
-    user: dbUser,
-    password: dbPassword,
-    database: dbName,
-    port: dbPort
 
+const db = mysql.createConnection({
+  host: dbHost,
+  user: dbUser,
+  password: dbPassword,
+  database: dbName,
+  port: dbPort
 });
 
+console.log('DB host/port/name:', dbHost, dbPort, dbName);
 
 db.connect(err => {
-    if (err) {
-        console.error('Kunde inte ansluta till databasen:', err);
-        process.exit();
-    }
-    console.log('Ansluten till databasen');
+  if (err) {
+    console.error('Kunde inte ansluta till databasen:', err);
+    process.exit(1);
+  }
+  console.log('Ansluten till databasen');
 });
+
+// ---- Helpers ----
+const peek = (s, n = 12) => (typeof s === 'string' ? s.slice(0, n) : String(s).slice(0, n));
 
 // JWT-verifieringsmiddleware
 const verifyToken = (req, res, next) => {
-    const token = req.headers['authorization'];
-    if (!token) return res.status(403).send({ auth: false, message: 'Ingen token tillhandahållen.' });
+  const hdr = req.headers['authorization'] || '';
+  console.log('[verifyToken] Authorization header:', hdr);
+  
+  const parts = hdr.split(' ');
+  const bearer = parts.length === 2 && /^Bearer$/i.test(parts[0]) ? parts[1] : null;
 
-    jwt.verify(token.split(' ')[1], jwtSecret, (err, decoded) => {
-        if (err) return res.status(500).send({ auth: false, message: 'Misslyckades med att autentisera token.' });
-        req.userId = decoded.id;
-        next();
-    });
+  if (!bearer) {
+    console.log('[verifyToken] No bearer token found');
+    return res.status(403).json({ auth: false, message: 'Ingen token tillhandahållen.' });
+  }
+
+  jwt.verify(bearer, jwtSecret, (err, decoded) => {
+    if (err) {
+      console.log('[verifyToken] Token verification failed:', err.message);
+      return res.status(401).json({ auth: false, message: 'Ogiltig token.' });
+    }
+    console.log('[verifyToken] Token verified successfully for user:', decoded.username);
+    req.userId = decoded.id;
+    req.username = decoded.username;
+    next();
+  });
 };
 
-// Validera token (server-side route)
-app.get('/validate', verifyToken, (req, res) => {
-    // Om token är giltig, returnera användarens information (t.ex. användarnamn)
-    res.status(200).send({ username: 'Ditt användarnamn' });
-});
+// ---- Routes ----
 
-app.get('/protected.html', (req, res) => {
-    const token = req.cookies.token;
+// Register
+app.post('/register', (req, res) => {
+  let { username, password, mail } = req.body || {};
+  username = String(username || '').trim();
+  mail = String(mail || '').trim();
+  password = String(password || '').trim();
 
-    if (!token) {
-        // Om ingen token, omdirigera till inloggningssidan
-        return res.redirect('/login.html');
+  if (!username || !password || !mail) {
+    return res.status(400).json({ error: 'username, password och mail krävs' });
+  }
+
+  const account_created = new Date();
+
+  bcrypt.hash(password, 10, (err, hash) => {
+    if (err) {
+      console.error('Fel vid hashning av lösenord:', err.message);
+      return res.status(500).json({ error: 'Ett fel uppstod vid hashning av lösenordet' });
     }
 
-    jwt.verify(token, jwtSecret, (err, decoded) => {
-        if (err) {
-            // Om token är ogiltig, omdirigera till inloggningssidan
-            return res.redirect('/login.html');
-        }
-        // Om token är giltig, rendera undersidan
-        res.sendFile(path.join(__dirname, 'protected.html'));
+    const query = 'INSERT INTO users (username, password, mail, account_created) VALUES (?, ?, ?, ?)';
+    db.query(query, [username, hash, mail, account_created], (err) => {
+      if (err) {
+        console.error('DB-fel vid registrering:', err.code || err.message);
+        return res.status(500).json({ error: 'Ett fel uppstod vid registrering av användare' });
+      }
+      res.status(201).json({ message: 'Användare skapad' });
     });
-});
-
-// Registrera användare
-app.post('/register', (req, res) => {
-    const { username, password, mail } = req.body;
-    const account_created = new Date();
-
-    console.log(`Försöker registrera användare: ${username}`);
-
-    // Kryptera lösenordet
-    bcrypt.hash(password, 10, (err, hash) => {
-        if (err) {
-            console.error('Fel vid hashning av lösenord:', err.message);
-         return res.status(500).send('Ett fel uppstod vid hashning av lösenordet');
-        }
-        const query = 'INSERT INTO users (username, password, mail, account_created) VALUES (?, ?, ?, ?)';
-        db.query(query, [username, hash, mail, account_created], (err, result) => {
-            if (err) return res.status(500).send('Ett fel uppstod vid registrering av användare');
-            res.status(201).send({ message: 'Användare skapad' });
-        });
-    });
+  });
 });
 
 // Logga in användare
 app.post('/login', (req, res) => {
-    const { username, password } = req.body;
+  let { username, password } = req.body || {};
+  username = String(username || '').trim();
+  password = String(password || '').trim();
 
-    const query = 'SELECT * FROM users WHERE username = ?';
-    db.query(query, [username], (err, results) => {
-        if (err) return res.status(500).send('Ett fel uppstod vid inloggning');
-        if (results.length === 0) return res.status(404).send('Användare hittades inte');
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Användarnamn och lösenord krävs' });
+  }
 
-        const user = results[0];
-        bcrypt.compare(password, user.password, (err, isMatch) => {
-            if (err) return res.status(500).send('Ett fel uppstod vid jämförelse av lösenord');
-            if (!isMatch) return res.status(401).send('Felaktigt lösenord');
+  const query = 'SELECT id, username, password FROM users WHERE username = ? LIMIT 1';
+  db.query(query, [username], (err, results) => {
+    if (err) {
+      console.error('DB error /login:', err.code || err.message);
+      return res.status(500).json({ error: 'Ett fel uppstod vid inloggning' });
+    }
+    if (results.length === 0) {
+      return res.status(401).json({ error: 'Felaktigt lösenord eller användarnamn' });
+    }
 
-            const token = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: 86400 }); // 24 timmar
-            res.status(200).send({ auth: true, token });
-        });
+    const user = results[0];
+    const storedHash = String(user.password || '');
+    console.log('[login] user:', user.username, '| hashLen:', storedHash.length, '| hashPeek:', peek(storedHash));
+
+    bcrypt.compare(password, storedHash, (cmpErr, isMatch) => {
+      if (cmpErr) {
+        console.error('bcrypt error:', cmpErr.message);
+        return res.status(500).json({ error: 'Ett fel uppstod vid jämförelse av lösenord' });
+      }
+      console.log('[login] compare result:', isMatch ? 'MATCH' : 'NO MATCH');
+
+      if (!isMatch) {
+        return res.status(401).json({ error: 'Felaktigt lösenord eller användarnamn' });
+      }
+
+      const token = jwt.sign({ id: user.id, username: user.username }, jwtSecret, { expiresIn: 86400 });
+      console.log('[login] Token created for user:', user.username);
+      res.status(200).json({ auth: true, token });
     });
+  });
 });
 
+// Validera
+app.get('/validate', verifyToken, (req, res) => {
+  console.log('[/validate] Successful validation for user:', req.username);
+  return res.status(200).json({ username: req.username || 'Okänd' });
+});
+
+// Catch-all för att logga 404s
+app.use((req, res, next) => {
+  console.log('[404] Route not found:', req.method, req.path);
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// ---- Start ----
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => {
-    console.log(`Server körs på port ${PORT}`);
+  console.log(`Server körs på port ${PORT}`);
 });
